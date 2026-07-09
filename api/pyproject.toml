@@ -17,5 +17,8 @@ dependencies = [
   "email-validator>=2.2,<3.0",
 ]
 
+[tool.vercel]
+entrypoint = "app.main:app"
+
 [tool.vercel.scripts]
 build = "python -m alembic upgrade head"
