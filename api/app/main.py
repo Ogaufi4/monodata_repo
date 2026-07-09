@@ -5,7 +5,7 @@ from app.api.router import api_router
 from app.core.config import settings
 
 PRODUCTION_WEB_ORIGINS = [
-    "https://contribute.diteme.com",
+    "https://contribute.diteme.com","https://monodata-repo-next-577l131qh-ogauras-projects.vercel.app/"
 ]
 
 app = FastAPI(

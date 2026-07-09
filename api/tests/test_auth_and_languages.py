@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_user
 from app.core.database import Base, get_db
+from app.core.config import Settings
+from app.core.security import hash_password
 from app.main import app
 from app.api.routes.uploads import ALLOWED_CONTENT_TYPES, storage_or_503
 from app.models.user import Role, User
@@ -19,6 +21,11 @@ engine = create_engine(
     poolclass=StaticPool,
 )
 TestingSession = sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def test_postgres_urls_use_the_installed_psycopg3_driver() -> None:
+    settings = Settings(database_url="postgresql://user:pass@example.com/db")
+    assert settings.database_url.startswith("postgresql+psycopg://")
 
 
 def override_db() -> Generator[Session, None, None]:
@@ -392,3 +399,88 @@ def test_required_camera_and_browser_recording_formats_are_allowed() -> None:
         "audio/mp4",
     }
     assert required.issubset(ALLOWED_CONTENT_TYPES)
+
+
+def test_reviewer_approval_awards_contributor_coins() -> None:
+    contributor = register()
+    contributor_headers = {
+        "Authorization": f"Bearer {contributor['access_token']}"
+    }
+    with TestingSession() as db:
+        language = Language(name="Setswana", iso_code="tsn")
+        target = Language(name="English", iso_code="eng")
+        category = Category(name="Greetings")
+        reviewer_role = Role(name="reviewer", description="Reviews contributions")
+        reviewer_user = User(
+            email="reviewer@example.com",
+            full_name="Test Reviewer",
+            password_hash=hash_password("reviewer-test-password"),
+            roles=[reviewer_role],
+        )
+        db.add_all([language, target, category, reviewer_user])
+        db.commit()
+        language_id, target_id, category_id = (
+            str(language.id),
+            str(target.id),
+            str(category.id),
+        )
+
+    draft = client.post(
+        "/api/v1/contributions",
+        headers=contributor_headers,
+        json={
+            "contribution_type": "translation",
+            "title": "Coin test",
+            "description": "Approved translation",
+            "language_id": language_id,
+            "target_language_id": target_id,
+            "category_id": category_id,
+            "domain": "daily life",
+            "source": "Contributor",
+            "license_type": "CC BY 4.0",
+        },
+    ).json()
+    client.post(
+        "/api/v1/translations",
+        headers=contributor_headers,
+        json={
+            "contribution_id": draft["id"],
+            "source_text": "Dumela",
+            "target_text": "Hello",
+        },
+    )
+    client.post(
+        f"/api/v1/contributions/{draft['id']}/consent",
+        headers=contributor_headers,
+        json={
+            "consent_version": "1.0",
+            "use_for_ai_training": True,
+            "use_for_research": True,
+            "use_for_commercial": False,
+            "allow_open_release": True,
+            "allow_attribution": False,
+        },
+    )
+    client.post(
+        f"/api/v1/contributions/{draft['id']}/submit",
+        headers=contributor_headers,
+    )
+    reviewer_login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "reviewer@example.com",
+            "password": "reviewer-test-password",
+        },
+    ).json()
+    reviewer_headers = {
+        "Authorization": f"Bearer {reviewer_login['access_token']}"
+    }
+    decision = client.post(
+        f"/api/v1/contributions/{draft['id']}/review",
+        headers=reviewer_headers,
+        json={"action": "approve", "quality_score": 90, "notes": "Good"},
+    )
+    assert decision.status_code == 201
+    wallet = client.get("/api/v1/wallet", headers=contributor_headers).json()
+    assert wallet["earned_coins"] == 5
+    assert wallet["total_lifetime_coins"] == 5

@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.api.dependencies import get_current_user, require_roles
 from app.core.database import get_db
 from app.models.contribution import Category, Consent, Contribution, TranslationPair
 from app.models.language import Dialect, Language, SpeechCommunity
+from app.models.intelligence import ImageAnnotation
 from app.models.user import User
 from app.schemas.contribution import (
     CategoryCreate,
@@ -258,6 +259,15 @@ def submit_contribution(
         "document",
     } and not contribution.assets:
         missing.append("asset")
+    if contribution.contribution_type == "labeled_image" and contribution.assets:
+        asset_ids = [asset.id for asset in contribution.assets]
+        annotation_count = db.scalar(
+            select(func.count())
+            .select_from(ImageAnnotation)
+            .where(ImageAnnotation.asset_id.in_(asset_ids))
+        )
+        if not annotation_count:
+            missing.append("image_annotation")
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

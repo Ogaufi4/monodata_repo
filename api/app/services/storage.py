@@ -21,6 +21,8 @@ class ObjectStorage(Protocol):
 
     def object_metadata(self, storage_key: str) -> dict[str, object]: ...
 
+    def create_download_url(self, storage_key: str, expires_in: int) -> str: ...
+
 
 class LocalObjectStorage:
     """Disk-backed object storage for local development only."""
@@ -74,6 +76,23 @@ class LocalObjectStorage:
             raise FileNotFoundError(storage_key)
         return json.loads(metadata_path.read_text(encoding="utf-8"))
 
+    def create_download_url(self, storage_key: str, expires_in: int) -> str:
+        token = jwt.encode(
+            {
+                "storage_key": storage_key,
+                "purpose": "local_object_download",
+                "exp": datetime.now(UTC) + timedelta(seconds=expires_in),
+            },
+            settings.jwt_secret,
+            algorithm="HS256",
+        )
+        return f"{settings.local_storage_base_url.rstrip('/')}/api/v1/uploads/local-download/{token}"
+
+    def read_object(self, storage_key: str) -> tuple[bytes, str]:
+        path = self._path(storage_key)
+        metadata = self.object_metadata(storage_key)
+        return path.read_bytes(), str(metadata["ContentType"])
+
 
 class R2Storage:
     def __init__(self) -> None:
@@ -117,6 +136,13 @@ class R2Storage:
 
     def object_metadata(self, storage_key: str) -> dict[str, object]:
         return self.client.head_object(Bucket=self.bucket, Key=storage_key)
+
+    def create_download_url(self, storage_key: str, expires_in: int) -> str:
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": storage_key},
+            ExpiresIn=expires_in,
+        )
 
 
 @lru_cache

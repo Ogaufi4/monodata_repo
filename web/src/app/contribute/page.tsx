@@ -29,6 +29,11 @@ const paths = [
     href: "/contribute/image",
   },
   {
+    title: "Label an image",
+    description: "Upload an image and add an object bounding box.",
+    href: "/contribute/labeled-image",
+  },
+  {
     title: "Upload a video",
     description: "Preserve interviews, demonstrations, and cultural practices.",
     href: "/contribute/video",

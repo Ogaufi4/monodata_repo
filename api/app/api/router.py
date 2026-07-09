@@ -1,6 +1,15 @@
 from fastapi import APIRouter
 
-from app.api.routes import auth, contributions, conversations, health, languages, uploads
+from app.api.routes import (
+    auth,
+    contributions,
+    conversations,
+    health,
+    intelligence,
+    languages,
+    uploads,
+    workflow,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["system"])
@@ -9,3 +18,5 @@ api_router.include_router(languages.router, tags=["languages"])
 api_router.include_router(contributions.router, tags=["contributions"])
 api_router.include_router(conversations.router, tags=["conversations"])
 api_router.include_router(uploads.router, tags=["uploads"])
+api_router.include_router(workflow.router, tags=["workflow"])
+api_router.include_router(intelligence.router, tags=["intelligence"])
