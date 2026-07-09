@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.dependencies import get_current_user
 from app.core.database import Base, get_db
 from app.main import app
+from app.api.routes.uploads import storage_or_503
 from app.models.user import Role, User
 from app.models.contribution import Category
 from app.models.language import Language
@@ -268,3 +269,110 @@ def test_conversation_requires_turns_and_preserves_order() -> None:
     )
     assert submitted.status_code == 200
     assert submitted.json()["status"] == "submitted"
+
+
+def test_signed_upload_is_verified_before_asset_creation() -> None:
+    class FakeStorage:
+        metadata: dict[str, dict[str, object]] = {}
+
+        def create_upload_url(
+            self, storage_key: str, content_type: str, expires_in: int
+        ) -> str:
+            return f"https://uploads.example.test/{storage_key}"
+
+        def object_metadata(self, storage_key: str) -> dict[str, object]:
+            return self.metadata[storage_key]
+
+    fake_storage = FakeStorage()
+    app.dependency_overrides[storage_or_503] = lambda: fake_storage
+    try:
+        registration = register()
+        headers = {"Authorization": f"Bearer {registration['access_token']}"}
+        with TestingSession() as db:
+            language = Language(name="Setswana", iso_code="tsn")
+            category = Category(name="Pronunciation")
+            db.add_all([language, category])
+            db.commit()
+            language_id = str(language.id)
+            category_id = str(category.id)
+
+        draft = client.post(
+            "/api/v1/contributions",
+            headers=headers,
+            json={
+                "contribution_type": "audio_recording",
+                "title": "Greeting pronunciation",
+                "description": "Spoken Setswana greeting",
+                "language_id": language_id,
+                "category_id": category_id,
+                "domain": "speech",
+                "source": "Contributor recording",
+                "license_type": "CC BY 4.0",
+            },
+        )
+        contribution_id = draft.json()["id"]
+
+        incomplete = client.post(
+            f"/api/v1/contributions/{contribution_id}/submit",
+            headers=headers,
+        )
+        assert set(incomplete.json()["detail"]["missing"]) == {"consent", "asset"}
+
+        signed = client.post(
+            "/api/v1/uploads/signed-url",
+            headers=headers,
+            json={
+                "contribution_id": contribution_id,
+                "filename": "../../greeting.webm",
+                "content_type": "audio/webm",
+                "file_size": 2048,
+            },
+        )
+        assert signed.status_code == 200
+        signed_body = signed.json()
+        assert ".." not in signed_body["storage_key"]
+        fake_storage.metadata[signed_body["storage_key"]] = {
+            "ContentLength": 2048,
+            "ContentType": "audio/webm",
+        }
+
+        confirmed = client.post(
+            "/api/v1/uploads/confirm",
+            headers=headers,
+            json={
+                "upload_token": signed_body["upload_token"],
+                "duration": 1.5,
+                "checksum": "sha256:test",
+            },
+        )
+        assert confirmed.status_code == 201
+        assert confirmed.json()["media_type"] == "audio"
+
+        assets = client.get(
+            f"/api/v1/contributions/{contribution_id}/assets",
+            headers=headers,
+        )
+        assert assets.status_code == 200
+        assert len(assets.json()) == 1
+
+        consent = client.post(
+            f"/api/v1/contributions/{contribution_id}/consent",
+            headers=headers,
+            json={
+                "consent_version": "1.0",
+                "use_for_ai_training": True,
+                "use_for_research": True,
+                "use_for_commercial": False,
+                "allow_open_release": False,
+                "allow_attribution": False,
+            },
+        )
+        assert consent.status_code == 201
+        submitted = client.post(
+            f"/api/v1/contributions/{contribution_id}/submit",
+            headers=headers,
+        )
+        assert submitted.status_code == 200
+        assert submitted.json()["status"] == "submitted"
+    finally:
+        app.dependency_overrides.pop(storage_or_503, None)

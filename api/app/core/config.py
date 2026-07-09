@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     r2_access_key_id: str | None = None
     r2_secret_access_key: str | None = None
     r2_bucket_name: str | None = None
+    max_upload_bytes: int = 524_288_000
     jwt_secret: str = "development-only-change-me-at-least-32-bytes"
     access_token_minutes: int = 60
 

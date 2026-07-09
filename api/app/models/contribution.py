@@ -91,6 +91,10 @@ class Contribution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    assets: Mapped[list["ContributionAsset"]] = relationship(
+        back_populates="contribution",
+        cascade="all, delete-orphan",
+    )
 
 
 class TranslationPair(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -173,3 +177,29 @@ class ConversationTurn(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     review_status: Mapped[str] = mapped_column(String(30), default="draft")
 
     conversation: Mapped[ConversationThread] = relationship(back_populates="turns")
+
+
+class ContributionAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "contribution_assets"
+
+    contribution_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("contributions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    storage_key: Mapped[str] = mapped_column(String(500), unique=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    media_type: Mapped[str] = mapped_column(String(30), index=True)
+    content_type: Mapped[str] = mapped_column(String(120))
+    file_size: Mapped[int] = mapped_column(Integer)
+    checksum: Mapped[str | None] = mapped_column(String(128))
+    duration: Mapped[float | None] = mapped_column(Float)
+    file_format: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(30), default="confirmed", index=True)
+
+    contribution: Mapped[Contribution] = relationship(back_populates="assets")

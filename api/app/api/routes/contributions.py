@@ -21,6 +21,7 @@ from app.schemas.contribution import (
     TranslationCreate,
     TranslationRead,
 )
+from app.schemas.upload import AssetRead
 
 router = APIRouter()
 admin = require_roles("admin", "super_admin")
@@ -139,6 +140,19 @@ def get_contribution(
     return owned_contribution(db, contribution_id, user)
 
 
+@router.get(
+    "/contributions/{contribution_id}/assets",
+    response_model=list[AssetRead],
+)
+def list_assets(
+    contribution_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    contribution = owned_contribution(db, contribution_id, user)
+    return contribution.assets
+
+
 @router.post(
     "/contributions/{contribution_id}/consent",
     response_model=ConsentRead,
@@ -235,6 +249,15 @@ def submit_contribution(
             missing.append("conversation")
         elif not contribution.conversation.turns:
             missing.append("conversation_turns")
+    if contribution.contribution_type in {
+        "audio_recording",
+        "pronunciation",
+        "image",
+        "labeled_image",
+        "video",
+        "document",
+    } and not contribution.assets:
+        missing.append("asset")
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
