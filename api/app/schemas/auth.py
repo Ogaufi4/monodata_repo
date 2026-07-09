@@ -14,6 +14,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class FirebaseLoginRequest(BaseModel):
+    id_token: str = Field(min_length=20)
+    full_name: str | None = Field(default=None, max_length=160)
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

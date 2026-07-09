@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 524_288_000
     jwt_secret: str = "development-only-change-me-at-least-32-bytes"
     access_token_minutes: int = 60
+    firebase_project_id: str | None = None
     local_admin_email: str | None = None
     local_admin_password: str | None = None
 
