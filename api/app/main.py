@@ -13,7 +13,7 @@ app = FastAPI(
 allowed_origins = list(
     dict.fromkeys(
         [
-            *settings.web_origins,
+            *settings.web_origin_list,
             "https://contribute.diteme.com",
         ]
     )
