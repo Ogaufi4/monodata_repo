@@ -12,6 +12,10 @@ through `[tool.vercel]` in `pyproject.toml`:
 entrypoint = "app.main:app"
 ```
 
+Do not add `app/main.py` to the `functions` object in `vercel.json`. The
+`tool.vercel.entrypoint` setting is the source of truth, and a second function
+glob can fail validation before FastAPI discovery in a monorepo.
+
 Configure these environment variables for Preview and Production:
 
 - `DATABASE_URL`
