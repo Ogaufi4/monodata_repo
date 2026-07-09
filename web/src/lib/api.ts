@@ -16,7 +16,12 @@ export async function getLanguages(): Promise<Language[]> {
     if (!response.ok) {
       throw new Error(`Language API returned ${response.status}`);
     }
-    return response.json() as Promise<Language[]>;
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      return [];
+    }
+    const result: unknown = await response.json();
+    return Array.isArray(result) ? (result as Language[]) : [];
   } catch {
     return [];
   }
