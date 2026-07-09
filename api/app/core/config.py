@@ -1,6 +1,7 @@
 import json
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -9,7 +10,15 @@ class Settings(BaseSettings):
     app_name: str = "BIIDP API"
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/biidp"
+    database_url: str = Field(
+        default="postgresql+psycopg://postgres:postgres@localhost:5432/biidp",
+        validation_alias=AliasChoices(
+            "DATABASE_URL",
+            "POSTGRES_URL",
+            "POSTGRES_PRISMA_URL",
+            "POSTGRES_URL_NON_POOLING",
+        ),
+    )
     web_origins: str = "http://localhost:3000"
     r2_endpoint_url: str | None = None
     r2_access_key_id: str | None = None
