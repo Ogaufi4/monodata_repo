@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ from app.schemas.upload import (
     SignedUploadRequest,
     SignedUploadResponse,
 )
-from app.services.storage import ObjectStorage, get_storage
+from app.services.storage import LocalObjectStorage, ObjectStorage, get_storage
 
 router = APIRouter(prefix="/uploads")
 UPLOAD_TOKEN_ALGORITHM = "HS256"
@@ -31,11 +31,19 @@ ALLOWED_CONTENT_TYPES = {
     "audio/mpeg": ("audio", "mp3"),
     "audio/flac": ("audio", "flac"),
     "audio/aac": ("audio", "aac"),
+    "audio/mp4": ("audio", "m4a"),
+    "audio/x-m4a": ("audio", "m4a"),
     "audio/ogg": ("audio", "ogg"),
     "audio/webm": ("audio", "webm"),
     "image/jpeg": ("image", "jpg"),
     "image/png": ("image", "png"),
     "image/webp": ("image", "webp"),
+    "image/gif": ("image", "gif"),
+    "image/avif": ("image", "avif"),
+    "image/bmp": ("image", "bmp"),
+    "image/heic": ("image", "heic"),
+    "image/heif": ("image", "heif"),
+    "image/tiff": ("image", "tiff"),
     "video/mp4": ("video", "mp4"),
     "video/quicktime": ("video", "mov"),
     "video/webm": ("video", "webm"),
@@ -65,6 +73,38 @@ def storage_or_503() -> ObjectStorage:
 def safe_filename(filename: str) -> str:
     name = Path(filename).name
     return re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-") or "upload"
+
+
+@router.put("/local/{upload_token}", include_in_schema=False)
+async def local_upload(
+    upload_token: str,
+    request: Request,
+    storage: ObjectStorage = Depends(storage_or_503),
+) -> Response:
+    if not isinstance(storage, LocalObjectStorage):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    try:
+        claims = jwt.decode(
+            upload_token,
+            settings.jwt_secret,
+            algorithms=[UPLOAD_TOKEN_ALGORITHM],
+        )
+        if claims.get("purpose") != "local_object_upload":
+            raise ValueError("wrong token purpose")
+        storage_key = claims["storage_key"]
+        content_type = claims["content_type"]
+    except (jwt.InvalidTokenError, KeyError, ValueError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired upload URL")
+    if request.headers.get("content-type", "").lower() != content_type:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Content-Type mismatch")
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > settings.max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large")
+    content = await request.body()
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File too large")
+    storage.put_object(storage_key, content_type, content)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/signed-url", response_model=SignedUploadResponse)

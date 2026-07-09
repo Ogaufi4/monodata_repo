@@ -6,7 +6,8 @@ export default function AudioPage() {
       heading="Share a voice recording"
       contributionType="audio_recording"
       mediaLabel="Audio"
-      accept=".wav,.mp3,.flac,.aac,.ogg,.webm,audio/*"
+      accept=".wav,.mp3,.flac,.aac,.m4a,.ogg,.webm,audio/*"
+      enableRecording
     />
   );
 }

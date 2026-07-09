@@ -6,10 +6,19 @@ import { FormEvent, useEffect, useState } from "react";
 import { API_URL, type Language } from "@/lib/api";
 
 type Category = { id: string; name: string };
+type Dialect = {
+  id: string;
+  name: string;
+  local_name: string | null;
+  language_id: string;
+};
 
 export default function TranslationPage() {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [dialects, setDialects] = useState<Dialect[]>([]);
+  const [sourceLanguage, setSourceLanguage] = useState("");
+  const [targetLanguage, setTargetLanguage] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,10 +27,12 @@ export default function TranslationPage() {
     Promise.all([
       fetch(`${API_URL}/languages`).then((response) => response.json()),
       fetch(`${API_URL}/categories`).then((response) => response.json()),
+      fetch(`${API_URL}/dialects`).then((response) => response.json()),
     ])
-      .then(([languageData, categoryData]) => {
+      .then(([languageData, categoryData, dialectData]) => {
         setLanguages(languageData);
         setCategories(categoryData);
+        setDialects(dialectData);
       })
       .catch(() => setError("Could not load the language taxonomy."));
   }, []);
@@ -66,7 +77,9 @@ export default function TranslationPage() {
         title: String(form.get("title")),
         description: String(form.get("description")),
         language_id: String(form.get("language_id")),
+        dialect_id: form.get("dialect_id") || null,
         target_language_id: String(form.get("target_language_id")),
+        target_dialect_id: form.get("target_dialect_id") || null,
         category_id: String(form.get("category_id")),
         domain: String(form.get("domain")),
         tags: String(form.get("tags"))
@@ -81,6 +94,7 @@ export default function TranslationPage() {
         source_text: String(form.get("source_text")),
         target_text: String(form.get("target_text")),
         context: String(form.get("context")) || null,
+        notes: String(form.get("notes")) || null,
       });
       await request(`/contributions/${draft.id}/consent`, token, {
         consent_version: "1.0",
@@ -92,6 +106,8 @@ export default function TranslationPage() {
       });
       await request(`/contributions/${draft.id}/submit`, token);
       formElement.reset();
+      setSourceLanguage("");
+      setTargetLanguage("");
       setMessage("Translation submitted for review. Thank you.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Submission failed");
@@ -123,7 +139,13 @@ export default function TranslationPage() {
         <div className="grid gap-5 md:grid-cols-2">
           <label>
             <span className="text-sm font-medium">Translate from</span>
-            <select name="language_id" required className={fieldClass}>
+            <select
+              name="language_id"
+              required
+              className={fieldClass}
+              value={sourceLanguage}
+              onChange={(event) => setSourceLanguage(event.target.value)}
+            >
               <option value="">Select language</option>
               {languages.map((language) => (
                 <option key={language.id} value={language.id}>
@@ -134,13 +156,55 @@ export default function TranslationPage() {
           </label>
           <label>
             <span className="text-sm font-medium">Translate to</span>
-            <select name="target_language_id" required className={fieldClass}>
+            <select
+              name="target_language_id"
+              required
+              className={fieldClass}
+              value={targetLanguage}
+              onChange={(event) => setTargetLanguage(event.target.value)}
+            >
               <option value="">Select language</option>
               {languages.map((language) => (
                 <option key={language.id} value={language.id}>
                   {language.local_name || language.name}
                 </option>
               ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid gap-5 md:grid-cols-2">
+          <label>
+            <span className="text-sm font-medium">Source dialect (optional)</span>
+            <select
+              name="dialect_id"
+              className={fieldClass}
+              disabled={!sourceLanguage}
+            >
+              <option value="">No dialect selected</option>
+              {dialects
+                .filter((dialect) => dialect.language_id === sourceLanguage)
+                .map((dialect) => (
+                  <option key={dialect.id} value={dialect.id}>
+                    {dialect.local_name || dialect.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            <span className="text-sm font-medium">Target dialect (optional)</span>
+            <select
+              name="target_dialect_id"
+              className={fieldClass}
+              disabled={!targetLanguage}
+            >
+              <option value="">No dialect selected</option>
+              {dialects
+                .filter((dialect) => dialect.language_id === targetLanguage)
+                .map((dialect) => (
+                  <option key={dialect.id} value={dialect.id}>
+                    {dialect.local_name || dialect.name}
+                  </option>
+                ))}
             </select>
           </label>
         </div>
@@ -174,6 +238,10 @@ export default function TranslationPage() {
         <label className="block">
           <span className="text-sm font-medium">Context</span>
           <textarea name="context" className={fieldClass} />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium">Contributor notes</span>
+          <textarea name="notes" className={fieldClass} />
         </label>
         <label className="block">
           <span className="text-sm font-medium">Tags, separated by commas</span>

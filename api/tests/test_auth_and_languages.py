@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.dependencies import get_current_user
 from app.core.database import Base, get_db
 from app.main import app
-from app.api.routes.uploads import storage_or_503
+from app.api.routes.uploads import ALLOWED_CONTENT_TYPES, storage_or_503
 from app.models.user import Role, User
 from app.models.contribution import Category
 from app.models.language import Language
@@ -376,3 +376,19 @@ def test_signed_upload_is_verified_before_asset_creation() -> None:
         assert submitted.json()["status"] == "submitted"
     finally:
         app.dependency_overrides.pop(storage_or_503, None)
+
+
+def test_required_camera_and_browser_recording_formats_are_allowed() -> None:
+    required = {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/heic",
+        "image/heif",
+        "audio/wav",
+        "audio/mpeg",
+        "audio/webm",
+        "audio/ogg",
+        "audio/mp4",
+    }
+    assert required.issubset(ALLOWED_CONTENT_TYPES)

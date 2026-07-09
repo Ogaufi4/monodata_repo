@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { API_URL, type Language } from "@/lib/api";
 
@@ -12,6 +12,8 @@ type MediaUploadFormProps = {
   contributionType: "audio_recording" | "image" | "video" | "document";
   accept: string;
   mediaLabel: string;
+  enableRecording?: boolean;
+  capture?: "user" | "environment";
 };
 
 export function MediaUploadForm({
@@ -19,12 +21,20 @@ export function MediaUploadForm({
   contributionType,
   accept,
   mediaLabel,
+  enableRecording = false,
+  capture,
 }: MediaUploadFormProps) {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -37,6 +47,70 @@ export function MediaUploadForm({
       })
       .catch(() => setError("Could not load contribution metadata."));
   }, []);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function chooseFile(file: File | null) {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedFile(file);
+    setPreviewUrl(file ? URL.createObjectURL(file) : "");
+  }
+
+  async function startRecording() {
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError("This browser does not support audio recording.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ];
+      const mimeType = preferredTypes.find((type) =>
+        MediaRecorder.isTypeSupported(type),
+      );
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const type = recorder.mimeType.split(";")[0] || "audio/webm";
+        const extension = type === "audio/mp4" ? "m4a" : type.split("/")[1] || "webm";
+        const blob = new Blob(chunksRef.current, { type });
+        chooseFile(
+          new File([blob], `recording-${Date.now()}.${extension}`, { type }),
+        );
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        setRecording(false);
+      };
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      recorder.start(250);
+      setRecording(true);
+    } catch {
+      setError("Microphone access was denied or is unavailable.");
+    }
+  }
+
+  function stopRecording() {
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    }
+  }
 
   async function apiRequest(path: string, token: string, body: object) {
     const response = await fetch(`${API_URL}${path}`, {
@@ -62,13 +136,16 @@ export function MediaUploadForm({
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const file = form.get("file");
+    const formFile = form.get("file");
+    const file =
+      selectedFile ||
+      (formFile instanceof File && formFile.size ? formFile : null);
     const token = localStorage.getItem("biidp_access_token");
     if (!token) {
       setError("Sign in before uploading a contribution.");
       return;
     }
-    if (!(file instanceof File) || !file.size) {
+    if (!file || !file.size) {
       setError(`Choose a ${mediaLabel.toLowerCase()} file.`);
       return;
     }
@@ -115,6 +192,7 @@ export function MediaUploadForm({
       });
       await apiRequest(`/contributions/${draft.id}/submit`, token, {});
       formElement.reset();
+      chooseFile(null);
       setMessage(`${mediaLabel} submitted for review. Thank you.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Upload failed");
@@ -176,8 +254,63 @@ export function MediaUploadForm({
         </div>
         <label className="block">
           <span className="text-sm font-medium">{mediaLabel} file</span>
-          <input name="file" type="file" accept={accept} required className={fieldClass} />
+          <input
+            name="file"
+            type="file"
+            accept={accept}
+            capture={capture}
+            required={!selectedFile}
+            onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
+            className={fieldClass}
+          />
         </label>
+        {enableRecording && (
+          <section className="rounded-3xl bg-ink p-6 text-sand">
+            <p className="font-semibold">Record speech in your browser</p>
+            <p className="mt-2 text-sm text-white/60">
+              Record, preview, and re-record before submitting.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              {!recording ? (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="rounded-full bg-sun px-5 py-2.5 font-medium text-ink"
+                >
+                  {selectedFile ? "Record again" : "Start recording"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="rounded-full bg-red-600 px-5 py-2.5 font-medium text-white"
+                >
+                  Stop recording
+                </button>
+              )}
+              {recording && (
+                <span className="flex items-center gap-2 text-sm">
+                  <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+                  Recording…
+                </span>
+              )}
+            </div>
+          </section>
+        )}
+        {previewUrl && contributionType === "audio_recording" && (
+          <audio controls src={previewUrl} className="w-full">
+            Your browser does not support audio playback.
+          </audio>
+        )}
+        {previewUrl && contributionType === "image" && (
+          // The source is a local object URL chosen by the contributor.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={previewUrl}
+            alt="Selected contribution preview"
+            className="max-h-96 w-full rounded-3xl bg-white object-contain"
+          />
+        )}
         <label className="block">
           <span className="text-sm font-medium">License</span>
           <select name="license_type" required className={fieldClass}>

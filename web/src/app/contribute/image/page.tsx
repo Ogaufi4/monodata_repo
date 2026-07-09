@@ -6,7 +6,8 @@ export default function ImagePage() {
       heading="Share an image"
       contributionType="image"
       mediaLabel="Image"
-      accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+      accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.heic,.heif,.tif,.tiff,image/*"
+      capture="environment"
     />
   );
 }

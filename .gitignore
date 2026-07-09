@@ -14,5 +14,6 @@ dist/
 build/
 *.db
 local-*.log
+local-storage/
 .DS_Store
 Thumbs.db
