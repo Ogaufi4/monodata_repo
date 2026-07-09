@@ -9,6 +9,8 @@ from app.api.dependencies import get_current_user
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.user import Role, User
+from app.models.contribution import Category
+from app.models.language import Language
 
 engine = create_engine(
     "sqlite://",
@@ -97,3 +99,78 @@ def test_admin_can_create_and_public_can_list_language() -> None:
     public_list = client.get("/api/v1/languages")
     assert public_list.status_code == 200
     assert public_list.json()[0]["name"] == "Setswana"
+
+
+def test_translation_requires_consent_and_content_before_submission() -> None:
+    registration = register()
+    token = registration["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with TestingSession() as db:
+        language = Language(name="Setswana", local_name="Setswana", iso_code="tsn")
+        target = Language(name="English", local_name="English", iso_code="eng")
+        category = Category(name="Everyday speech", description="Common expressions")
+        db.add_all([language, target, category])
+        db.commit()
+        language_id = str(language.id)
+        target_id = str(target.id)
+        category_id = str(category.id)
+
+    draft = client.post(
+        "/api/v1/contributions",
+        headers=headers,
+        json={
+            "contribution_type": "translation",
+            "title": "Greeting",
+            "description": "A common morning greeting",
+            "language_id": language_id,
+            "target_language_id": target_id,
+            "category_id": category_id,
+            "domain": "daily life",
+            "tags": ["greeting"],
+            "source": "first-hand speaker knowledge",
+            "license_type": "CC BY 4.0",
+        },
+    )
+    assert draft.status_code == 201
+    contribution_id = draft.json()["id"]
+
+    incomplete = client.post(
+        f"/api/v1/contributions/{contribution_id}/submit",
+        headers=headers,
+    )
+    assert incomplete.status_code == 422
+    assert set(incomplete.json()["detail"]["missing"]) == {"consent", "translation"}
+
+    translation = client.post(
+        "/api/v1/translations",
+        headers=headers,
+        json={
+            "contribution_id": contribution_id,
+            "source_text": "Dumela",
+            "target_text": "Hello",
+            "context": "A general greeting",
+        },
+    )
+    assert translation.status_code == 201
+
+    consent = client.post(
+        f"/api/v1/contributions/{contribution_id}/consent",
+        headers=headers,
+        json={
+            "consent_version": "1.0",
+            "use_for_ai_training": True,
+            "use_for_research": True,
+            "use_for_commercial": False,
+            "allow_open_release": True,
+            "allow_attribution": True,
+        },
+    )
+    assert consent.status_code == 201
+
+    submitted = client.post(
+        f"/api/v1/contributions/{contribution_id}/submit",
+        headers=headers,
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "submitted"
