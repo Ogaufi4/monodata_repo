@@ -23,8 +23,9 @@ Configure these environment variables for Preview and Production:
 - `R2_BUCKET_NAME`
 
 Use a pooled PostgreSQL connection URL suitable for serverless functions.
-Database migrations are an explicit release step and must not run during every
-function cold start.
+Vercel runs `python -m alembic upgrade head` once during the deployment build,
+after dependencies are installed. Migrations do not run during function cold
+starts.
 
 Local Vercel development requires CLI 48.1.8 or newer:
 
