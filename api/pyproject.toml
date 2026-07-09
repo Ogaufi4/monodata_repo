@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [tool.vercel]
-entrypoint = "app.main:asgi_app"
+entrypoint = "app.main:app"
 
 [tool.vercel.scripts]
 build = "python -m alembic upgrade head"
