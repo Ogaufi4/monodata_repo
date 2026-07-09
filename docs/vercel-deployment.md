@@ -5,16 +5,11 @@ Create two Vercel projects from the same repository.
 ## API project
 
 Set the project root directory to `api`. Vercel discovers the FastAPI instance
-through `[tool.vercel]` in `pyproject.toml`:
+from the supported root entrypoint `index.py`. That file imports the application
+from `app.main`.
 
-```toml
-[tool.vercel]
-entrypoint = "app.main:app"
-```
-
-Do not add `app/main.py` to the `functions` object in `vercel.json`. The
-`tool.vercel.entrypoint` setting is the source of truth, and a second function
-glob can fail validation before FastAPI discovery in a monorepo.
+Do not add `app/main.py` to the `functions` object in `vercel.json`. FastAPI
+zero-configuration discovery is the source of truth.
 
 Configure these environment variables for Preview and Production:
 
