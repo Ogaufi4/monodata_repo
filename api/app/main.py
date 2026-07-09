@@ -10,9 +10,18 @@ app = FastAPI(
     description="API for Botswana's indigenous data contribution platform.",
 )
 
+allowed_origins = list(
+    dict.fromkeys(
+        [
+            *settings.web_origins,
+            "https://contribute.diteme.com",
+        ]
+    )
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.web_origins,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
