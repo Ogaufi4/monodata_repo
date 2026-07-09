@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 524_288_000
     jwt_secret: str = "development-only-change-me-at-least-32-bytes"
     access_token_minutes: int = 60
+    local_admin_email: str | None = None
+    local_admin_password: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -32,6 +34,16 @@ class Settings(BaseSettings):
     def parse_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def use_psycopg3_driver(cls, value: object) -> object:
+        if isinstance(value, str):
+            if value.startswith("postgres://"):
+                return value.replace("postgres://", "postgresql+psycopg://", 1)
+            if value.startswith("postgresql://"):
+                return value.replace("postgresql://", "postgresql+psycopg://", 1)
         return value
 
 
