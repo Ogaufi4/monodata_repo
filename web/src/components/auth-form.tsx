@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { API_URL } from "@/lib/api";
@@ -12,10 +12,16 @@ type AuthFormProps = {
 export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const [error, setError] = useState("");
+  const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!hydrated) return;
     setLoading(true);
     setError("");
     const form = new FormData(event.currentTarget);
@@ -83,10 +89,12 @@ export function AuthForm({ mode }: AuthFormProps) {
       {error && <p className="text-sm text-red-700">{error}</p>}
       <button
         type="submit"
-        disabled={loading}
+        disabled={!hydrated || loading}
         className="w-full rounded-full bg-reed px-6 py-3 font-medium text-white disabled:opacity-60"
       >
-        {loading
+        {!hydrated
+          ? "Loading..."
+          : loading
           ? "Please wait…"
           : mode === "register"
             ? "Create account"
