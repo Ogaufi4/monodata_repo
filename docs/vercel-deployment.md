@@ -8,8 +8,9 @@ Set the project root directory to `api`. Vercel discovers the FastAPI instance
 from the supported root entrypoint `index.py`. That file imports the application
 from `app.main`.
 
-Do not add `app/main.py` to the `functions` object in `vercel.json`. FastAPI
-zero-configuration discovery is the source of truth.
+`vercel.json` explicitly applies `@vercel/python` to `index.py` and routes all
+requests to it. This also prevents Vercel from serving the Python entrypoint as
+a downloadable static file when automatic framework detection is unavailable.
 
 Configure these environment variables for Preview and Production:
 
