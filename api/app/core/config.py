@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -9,7 +10,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/biidp"
-    web_origins: list[str] = ["http://localhost:3000"]
+    web_origins: str = "http://localhost:3000"
     r2_endpoint_url: str | None = None
     r2_access_key_id: str | None = None
     r2_secret_access_key: str | None = None
@@ -29,12 +30,24 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("web_origins", mode="before")
-    @classmethod
-    def parse_origins(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @property
+    def web_origin_list(self) -> list[str]:
+        value = self.web_origins.strip()
+        if value.startswith("["):
+            try:
+                parsed = json.loads(value)
+                return [
+                    str(origin).strip()
+                    for origin in parsed
+                    if str(origin).strip()
+                ]
+            except (json.JSONDecodeError, TypeError):
+                value = value.strip("[]")
+        return [
+            origin.strip().strip("\"'")
+            for origin in value.split(",")
+            if origin.strip().strip("\"'")
+        ]
 
     @field_validator("database_url", mode="before")
     @classmethod
