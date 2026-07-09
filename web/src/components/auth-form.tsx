@@ -49,7 +49,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   }
 
   return (
-    <form onSubmit={submit} className="mt-10 space-y-5">
+    <form method="post" onSubmit={submit} className="mt-10 space-y-5">
       {mode === "register" && (
         <label className="block">
           <span className="text-sm font-medium">Full name</span>
@@ -82,6 +82,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       </label>
       {error && <p className="text-sm text-red-700">{error}</p>}
       <button
+        type="submit"
         disabled={loading}
         className="w-full rounded-full bg-reed px-6 py-3 font-medium text-white disabled:opacity-60"
       >
