@@ -3,9 +3,12 @@
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
+from app.core.config import settings
+from app.core.security import hash_password
 from app.models.contribution import Category
 from app.models.language import Language, LanguageGroup
 from app.models.user import Role
+from app.models.user import User
 
 ROLES = {
     "contributor": "Submits data contributions",
@@ -32,6 +35,28 @@ def seed() -> None:
         for name, description in ROLES.items():
             if db.scalar(select(Role).where(Role.name == name)) is None:
                 db.add(Role(name=name, description=description))
+        db.flush()
+
+        if settings.local_admin_email and settings.local_admin_password:
+            admin = db.scalar(
+                select(User).where(User.email == settings.local_admin_email.lower())
+            )
+            admin_roles = list(
+                db.scalars(
+                    select(Role).where(Role.name.in_(["admin", "reviewer"]))
+                )
+            )
+            if admin is None:
+                admin = User(
+                    email=settings.local_admin_email.lower(),
+                    full_name="Local Administrator",
+                    password_hash=hash_password(settings.local_admin_password),
+                    roles=admin_roles,
+                )
+                db.add(admin)
+            else:
+                existing = {role.name for role in admin.roles}
+                admin.roles.extend(role for role in admin_roles if role.name not in existing)
 
         group = db.scalar(
             select(LanguageGroup).where(LanguageGroup.name == "Botswana languages")

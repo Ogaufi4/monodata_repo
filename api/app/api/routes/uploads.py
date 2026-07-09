@@ -107,6 +107,27 @@ async def local_upload(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/local-download/{download_token}", include_in_schema=False)
+def local_download(
+    download_token: str,
+    storage: ObjectStorage = Depends(storage_or_503),
+) -> Response:
+    if not isinstance(storage, LocalObjectStorage):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    try:
+        claims = jwt.decode(
+            download_token,
+            settings.jwt_secret,
+            algorithms=[UPLOAD_TOKEN_ALGORITHM],
+        )
+        if claims.get("purpose") != "local_object_download":
+            raise ValueError("wrong token purpose")
+        content, content_type = storage.read_object(claims["storage_key"])
+    except (jwt.InvalidTokenError, KeyError, ValueError, FileNotFoundError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired download URL")
+    return Response(content, media_type=content_type)
+
+
 @router.post("/signed-url", response_model=SignedUploadResponse)
 def signed_url(
     payload: SignedUploadRequest,
@@ -229,3 +250,21 @@ def confirm_upload(
     db.commit()
     db.refresh(asset)
     return asset
+
+
+@router.get("/assets/{asset_id}/download-url")
+def asset_download_url(
+    asset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    storage: ObjectStorage = Depends(storage_or_503),
+) -> dict[str, object]:
+    asset = db.get(ContributionAsset, asset_id)
+    if asset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    owned_contribution(db, asset.contribution_id, user)
+    expires_in = 900
+    return {
+        "url": storage.create_download_url(asset.storage_key, expires_in),
+        "expires_in": expires_in,
+    }
