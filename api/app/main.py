@@ -4,8 +4,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import settings
 
+LOCAL_WEB_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+]
+
 PRODUCTION_WEB_ORIGINS = [
-    "https://contribute.diteme.com","https://monodata-repo-next-577l131qh-ogauras-projects.vercel.app/"
+    "https://contribute.diteme.com",
+    "https://monodata-repo-next-577l131qh-ogauras-projects.vercel.app",
 ]
 
 app = FastAPI(
@@ -18,6 +26,7 @@ allowed_origins = list(
     dict.fromkeys(
         [
             *settings.web_origin_list,
+            *LOCAL_WEB_ORIGINS,
             *PRODUCTION_WEB_ORIGINS,
         ]
     )
