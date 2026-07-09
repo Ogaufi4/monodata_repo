@@ -23,6 +23,21 @@ const paths = [
     description: "Preserve a story, proverb, practice, image, or document.",
     href: "/contribute/text",
   },
+  {
+    title: "Upload an image",
+    description: "Share a culturally relevant photograph or visual record.",
+    href: "/contribute/image",
+  },
+  {
+    title: "Upload a video",
+    description: "Preserve interviews, demonstrations, and cultural practices.",
+    href: "/contribute/video",
+  },
+  {
+    title: "Upload a document",
+    description: "Add research, educational, or historical source material.",
+    href: "/contribute/document",
+  },
 ];
 
 export default async function ContributePage() {
