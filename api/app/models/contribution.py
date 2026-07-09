@@ -10,6 +10,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -85,6 +86,11 @@ class Contribution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    conversation: Mapped["ConversationThread | None"] = relationship(
+        back_populates="contribution",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class TranslationPair(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -127,3 +133,43 @@ class Consent(UUIDPrimaryKeyMixin, Base):
     allow_attribution: Mapped[bool] = mapped_column(Boolean)
 
     contribution: Mapped[Contribution] = relationship(back_populates="consent")
+
+
+class ConversationThread(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversation_threads"
+
+    contribution_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("contributions.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    speaker_count: Mapped[int] = mapped_column(Integer)
+    context: Mapped[str | None] = mapped_column(Text)
+
+    contribution: Mapped[Contribution] = relationship(back_populates="conversation")
+    turns: Mapped[list["ConversationTurn"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ConversationTurn.turn_order",
+    )
+
+
+class ConversationTurn(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversation_turns"
+    __table_args__ = (UniqueConstraint("conversation_id", "turn_order"),)
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("conversation_threads.id", ondelete="CASCADE"),
+        index=True,
+    )
+    turn_order: Mapped[int] = mapped_column(Integer)
+    speaker_label: Mapped[str] = mapped_column(String(80))
+    speaker_role: Mapped[str | None] = mapped_column(String(80))
+    source_text: Mapped[str] = mapped_column(Text)
+    target_text: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    review_status: Mapped[str] = mapped_column(String(30), default="draft")
+
+    conversation: Mapped[ConversationThread] = relationship(back_populates="turns")

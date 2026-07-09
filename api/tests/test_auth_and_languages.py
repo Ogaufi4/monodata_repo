@@ -174,3 +174,97 @@ def test_translation_requires_consent_and_content_before_submission() -> None:
     )
     assert submitted.status_code == 200
     assert submitted.json()["status"] == "submitted"
+
+
+def test_conversation_requires_turns_and_preserves_order() -> None:
+    registration = register()
+    headers = {"Authorization": f"Bearer {registration['access_token']}"}
+
+    with TestingSession() as db:
+        language = Language(name="Sekgalagadi", iso_code="xkv")
+        target = Language(name="English", iso_code="eng")
+        category = Category(name="Community dialogue")
+        db.add_all([language, target, category])
+        db.commit()
+        language_id = str(language.id)
+        target_id = str(target.id)
+        category_id = str(category.id)
+
+    draft = client.post(
+        "/api/v1/contributions",
+        headers=headers,
+        json={
+            "contribution_type": "conversation",
+            "title": "At the kgotla",
+            "description": "A short community dialogue",
+            "language_id": language_id,
+            "target_language_id": target_id,
+            "category_id": category_id,
+            "domain": "community",
+            "source": "Contributor knowledge",
+            "license_type": "CC BY 4.0",
+        },
+    )
+    assert draft.status_code == 201
+    contribution_id = draft.json()["id"]
+
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "contribution_id": contribution_id,
+            "speaker_count": 2,
+            "context": "A village meeting",
+        },
+    )
+    assert conversation.status_code == 201
+    conversation_id = conversation.json()["id"]
+
+    missing_turns = client.post(
+        f"/api/v1/contributions/{contribution_id}/submit",
+        headers=headers,
+    )
+    assert "conversation_turns" in missing_turns.json()["detail"]["missing"]
+
+    for order, speaker, source, target_text in (
+        (1, "Speaker A", "Dumelang", "Hello everyone"),
+        (2, "Speaker B", "Dumela", "Hello"),
+    ):
+        turn = client.post(
+            f"/api/v1/conversations/{conversation_id}/turns",
+            headers=headers,
+            json={
+                "turn_order": order,
+                "speaker_label": speaker,
+                "source_text": source,
+                "target_text": target_text,
+            },
+        )
+        assert turn.status_code == 201
+
+    detail = client.get(
+        f"/api/v1/conversations/{conversation_id}",
+        headers=headers,
+    )
+    assert [turn["turn_order"] for turn in detail.json()["turns"]] == [1, 2]
+
+    consent = client.post(
+        f"/api/v1/contributions/{contribution_id}/consent",
+        headers=headers,
+        json={
+            "consent_version": "1.0",
+            "use_for_ai_training": True,
+            "use_for_research": True,
+            "use_for_commercial": False,
+            "allow_open_release": True,
+            "allow_attribution": True,
+        },
+    )
+    assert consent.status_code == 201
+
+    submitted = client.post(
+        f"/api/v1/contributions/{contribution_id}/submit",
+        headers=headers,
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "submitted"

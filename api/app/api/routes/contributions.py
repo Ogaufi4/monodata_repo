@@ -230,6 +230,11 @@ def submit_contribution(
         missing.append("consent")
     if contribution.contribution_type == "translation" and contribution.translation is None:
         missing.append("translation")
+    if contribution.contribution_type in {"conversation", "dialogue"}:
+        if contribution.conversation is None:
+            missing.append("conversation")
+        elif not contribution.conversation.turns:
+            missing.append("conversation_turns")
     if missing:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
