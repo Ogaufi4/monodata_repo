@@ -17,8 +17,22 @@ export const GET = handle(async (request) => {
   const contributions = await prisma.contribution.findMany({
     where,
     orderBy: { createdAt: "desc" },
+    include: {
+      transactions: {
+        where: { transactionType: "award", status: "completed" },
+        select: { amount: true },
+      },
+    },
   });
-  return json(contributions.map(contributionRead));
+  return json(
+    contributions.map((contribution) => ({
+      ...contributionRead(contribution),
+      points_awarded: contribution.transactions.reduce(
+        (total, transaction) => total + transaction.amount,
+        0,
+      ),
+    })),
+  );
 });
 
 export const POST = handle(async (request) => {
