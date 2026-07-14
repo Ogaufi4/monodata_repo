@@ -1,0 +1,507 @@
+// Prisma schema mapped 1:1 onto the existing Alembic-managed Postgres schema
+// (see api/migrations/versions). Column types, names, constraints, and
+// referential actions mirror api/app/models. Non-timestamp defaults are
+// applied in application code (they were client-side in SQLAlchemy, so the
+// live database has no server defaults for them).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(320)
+  fullName     String   @map("full_name") @db.VarChar(160)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  isActive     Boolean  @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  userRoles            UserRole[]
+  contributions        Contribution[]      @relation("ContributionAuthor")
+  consents             Consent[]
+  uploadedAssets       ContributionAsset[]
+  annotations          ImageAnnotation[]
+  syntheticExamples    SyntheticExample[]
+  datasets             Dataset[]
+  datasetExports       DatasetExport[]
+  reviews              Review[]
+  wallet               Wallet?
+  approvedTransactions CoinTransaction[]   @relation("TransactionApprover")
+  promptCompletions    PromptCompletion[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique @db.VarChar(40)
+  description String? @db.VarChar(255)
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model LanguageGroup {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(120)
+  description String?
+  isActive    Boolean  @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  languages Language[]
+
+  @@map("language_groups")
+}
+
+model Language {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(120)
+  localName   String?  @map("local_name") @db.VarChar(120)
+  isoCode     String?  @map("iso_code") @db.VarChar(12)
+  description String?
+  isActive    Boolean  @map("is_active")
+  groupId     String?  @map("group_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  group             LanguageGroup?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  dialects          Dialect[]
+  speechCommunities SpeechCommunity[]
+  contributions     Contribution[]     @relation("ContributionLanguage")
+  targetOf          Contribution[]     @relation("ContributionTargetLanguage")
+  annotations       ImageAnnotation[]
+  syntheticExamples SyntheticExample[]
+  promptCompletions PromptCompletion[]
+
+  @@unique([name, groupId])
+  @@index([name])
+  @@index([isoCode])
+  @@map("languages")
+}
+
+model Dialect {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(120)
+  localName   String?  @map("local_name") @db.VarChar(120)
+  description String?
+  isActive    Boolean  @map("is_active")
+  languageId  String   @map("language_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  language          Language          @relation(fields: [languageId], references: [id], onDelete: Cascade)
+  speechCommunities SpeechCommunity[]
+  contributions     Contribution[]    @relation("ContributionDialect")
+  targetOf          Contribution[]    @relation("ContributionTargetDialect")
+
+  @@unique([name, languageId])
+  @@index([languageId])
+  @@map("dialects")
+}
+
+model SpeechCommunity {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(160)
+  district    String?  @db.VarChar(120)
+  village     String?  @db.VarChar(120)
+  description String?
+  isActive    Boolean  @map("is_active")
+  languageId  String?  @map("language_id") @db.Uuid
+  dialectId   String?  @map("dialect_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  language      Language?      @relation(fields: [languageId], references: [id], onDelete: SetNull)
+  dialect       Dialect?       @relation(fields: [dialectId], references: [id], onDelete: SetNull)
+  contributions Contribution[]
+
+  @@index([name])
+  @@index([district])
+  @@map("speech_communities")
+}
+
+model Category {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(120)
+  description String?
+  isActive    Boolean  @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contributions Contribution[]
+
+  @@map("categories")
+}
+
+model Contribution {
+  id                String    @id @default(uuid()) @db.Uuid
+  authorId          String    @map("author_id") @db.Uuid
+  contributionType  String    @map("contribution_type") @db.VarChar(40)
+  title             String    @db.VarChar(200)
+  description       String
+  languageId        String    @map("language_id") @db.Uuid
+  dialectId         String?   @map("dialect_id") @db.Uuid
+  targetLanguageId  String?   @map("target_language_id") @db.Uuid
+  targetDialectId   String?   @map("target_dialect_id") @db.Uuid
+  speechCommunityId String?   @map("speech_community_id") @db.Uuid
+  categoryId        String    @map("category_id") @db.Uuid
+  promptItemId      String?   @map("prompt_item_id") @db.Uuid
+  domain            String    @db.VarChar(120)
+  tags              Json      @db.Json
+  source            String    @db.VarChar(200)
+  licenseType       String    @map("license_type") @db.VarChar(80)
+  status            String    @db.VarChar(30)
+  qualityScore      Float?    @map("quality_score")
+  version           Int
+  isSynthetic       Boolean   @map("is_synthetic")
+  humanVerified     Boolean   @map("human_verified")
+  submittedAt       DateTime? @map("submitted_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  author          User             @relation("ContributionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  language        Language         @relation("ContributionLanguage", fields: [languageId], references: [id], onDelete: Restrict)
+  dialect         Dialect?         @relation("ContributionDialect", fields: [dialectId], references: [id], onDelete: SetNull)
+  targetLanguage  Language?        @relation("ContributionTargetLanguage", fields: [targetLanguageId], references: [id], onDelete: SetNull)
+  targetDialect   Dialect?         @relation("ContributionTargetDialect", fields: [targetDialectId], references: [id], onDelete: SetNull)
+  speechCommunity SpeechCommunity? @relation(fields: [speechCommunityId], references: [id], onDelete: SetNull)
+  category        Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  promptItem      PromptItem?      @relation(fields: [promptItemId], references: [id], onDelete: SetNull)
+
+  consent      Consent?
+  translation  TranslationPair?
+  conversation ConversationThread?
+  assets       ContributionAsset[]
+  reviews      Review[]
+  transactions CoinTransaction[]
+  datasetItems DatasetItem[]
+  promptCompletions PromptCompletion[]
+
+  @@index([authorId])
+  @@index([contributionType])
+  @@index([languageId])
+  @@index([targetLanguageId])
+  @@index([categoryId])
+  @@index([promptItemId])
+  @@index([status])
+  @@map("contributions")
+}
+
+model PromptItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  sourceLanguage  String   @map("source_language") @db.VarChar(40)
+  sourceText      String   @map("source_text") @db.VarChar(240)
+  normalizedText  String   @map("normalized_text") @db.VarChar(240)
+  promptType      String   @map("prompt_type") @db.VarChar(30)
+  domain          String   @db.VarChar(120)
+  difficulty      String   @db.VarChar(30)
+  partOfSpeech    String?  @map("part_of_speech") @db.VarChar(40)
+  context         String?
+  exampleSentence String?  @map("example_sentence")
+  tags            Json     @db.Json
+  maxRepeats      Int      @map("max_repeats")
+  isActive        Boolean  @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contributions Contribution[]
+  completions   PromptCompletion[]
+
+  @@unique([sourceLanguage, normalizedText, promptType])
+  @@index([promptType])
+  @@index([domain])
+  @@index([difficulty])
+  @@index([isActive])
+  @@map("prompt_items")
+}
+
+model PromptCompletion {
+  id             String   @id @default(uuid()) @db.Uuid
+  promptItemId   String   @map("prompt_item_id") @db.Uuid
+  languageId     String   @map("language_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  contributionId String?  @map("contribution_id") @db.Uuid
+  taskType       String   @map("task_type") @db.VarChar(30)
+  status         String   @db.VarChar(30)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  promptItem   PromptItem    @relation(fields: [promptItemId], references: [id], onDelete: Cascade)
+  language     Language      @relation(fields: [languageId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contribution Contribution? @relation(fields: [contributionId], references: [id], onDelete: SetNull)
+
+  @@unique([promptItemId, languageId, userId, taskType])
+  @@index([promptItemId, languageId, taskType, status])
+  @@index([languageId])
+  @@index([contributionId])
+  @@map("prompt_completions")
+}
+
+model TranslationPair {
+  id             String   @id @default(uuid()) @db.Uuid
+  contributionId String   @unique @map("contribution_id") @db.Uuid
+  sourceText     String   @map("source_text")
+  targetText     String   @map("target_text")
+  context        String?
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contribution Contribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+
+  @@map("translation_pairs")
+}
+
+model Consent {
+  id               String   @id @default(uuid()) @db.Uuid
+  contributorId    String   @map("contributor_id") @db.Uuid
+  contributionId   String   @unique @map("contribution_id") @db.Uuid
+  consentVersion   String   @map("consent_version") @db.VarChar(30)
+  acceptedAt       DateTime @map("accepted_at") @db.Timestamptz(6)
+  useForAiTraining Boolean  @map("use_for_ai_training")
+  useForResearch   Boolean  @map("use_for_research")
+  useForCommercial Boolean  @map("use_for_commercial")
+  allowOpenRelease Boolean  @map("allow_open_release")
+  allowAttribution Boolean  @map("allow_attribution")
+
+  contributor  User         @relation(fields: [contributorId], references: [id], onDelete: Restrict)
+  contribution Contribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+
+  @@index([contributorId])
+  @@map("consents")
+}
+
+model ConversationThread {
+  id             String   @id @default(uuid()) @db.Uuid
+  contributionId String   @unique @map("contribution_id") @db.Uuid
+  speakerCount   Int      @map("speaker_count")
+  context        String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contribution Contribution       @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  turns        ConversationTurn[]
+
+  @@map("conversation_threads")
+}
+
+model ConversationTurn {
+  id             String   @id @default(uuid()) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  turnOrder      Int      @map("turn_order")
+  speakerLabel   String   @map("speaker_label") @db.VarChar(80)
+  speakerRole    String?  @map("speaker_role") @db.VarChar(80)
+  sourceText     String   @map("source_text")
+  targetText     String?  @map("target_text")
+  notes          String?
+  reviewStatus   String   @map("review_status") @db.VarChar(30)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  conversation ConversationThread @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, turnOrder])
+  @@index([conversationId])
+  @@map("conversation_turns")
+}
+
+model ContributionAsset {
+  id               String   @id @default(uuid()) @db.Uuid
+  contributionId   String   @map("contribution_id") @db.Uuid
+  uploadedBy       String   @map("uploaded_by") @db.Uuid
+  storageKey       String   @unique @map("storage_key") @db.VarChar(500)
+  originalFilename String   @map("original_filename") @db.VarChar(255)
+  mediaType        String   @map("media_type") @db.VarChar(30)
+  contentType      String   @map("content_type") @db.VarChar(120)
+  fileSize         Int      @map("file_size")
+  checksum         String?  @db.VarChar(128)
+  duration         Float?
+  fileFormat       String   @map("file_format") @db.VarChar(20)
+  status           String   @db.VarChar(30)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contribution Contribution      @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  uploader     User              @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+  annotations  ImageAnnotation[]
+
+  @@index([contributionId])
+  @@index([uploadedBy])
+  @@index([mediaType])
+  @@index([status])
+  @@map("contribution_assets")
+}
+
+model ImageAnnotation {
+  id               String   @id @default(uuid()) @db.Uuid
+  assetId          String   @map("asset_id") @db.Uuid
+  createdBy        String   @map("created_by") @db.Uuid
+  labelName        String   @map("label_name") @db.VarChar(160)
+  labelLanguageId  String?  @map("label_language_id") @db.Uuid
+  labelTranslation String?  @map("label_translation") @db.VarChar(160)
+  annotationType   String   @map("annotation_type") @db.VarChar(30)
+  xMin             Float?   @map("x_min")
+  yMin             Float?   @map("y_min")
+  xMax             Float?   @map("x_max")
+  yMax             Float?   @map("y_max")
+  confidence       Float?
+  reviewStatus     String   @map("review_status") @db.VarChar(30)
+  isSynthetic      Boolean  @map("is_synthetic")
+  humanVerified    Boolean  @map("human_verified")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  asset         ContributionAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  creator       User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  labelLanguage Language?         @relation(fields: [labelLanguageId], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([createdBy])
+  @@map("image_annotations")
+}
+
+model SyntheticExample {
+  id                   String   @id @default(uuid()) @db.Uuid
+  title                String   @db.VarChar(200)
+  exampleType          String   @map("example_type") @db.VarChar(40)
+  content              Json     @db.Json
+  languageId           String?  @map("language_id") @db.Uuid
+  syntheticSourceModel String   @map("synthetic_source_model") @db.VarChar(160)
+  promptUsed           String?  @map("prompt_used")
+  generatedAt          DateTime @map("generated_at") @db.Timestamptz(6)
+  humanVerified        Boolean  @map("human_verified")
+  reviewStatus         String   @map("review_status") @db.VarChar(30)
+  createdBy            String   @map("created_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  language Language? @relation(fields: [languageId], references: [id], onDelete: SetNull)
+  creator  User      @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([exampleType])
+  @@index([languageId])
+  @@map("synthetic_examples")
+}
+
+model Dataset {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(200)
+  description String?
+  filters     Json     @db.Json
+  createdBy   String   @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  creator User            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  items   DatasetItem[]
+  exports DatasetExport[]
+
+  @@map("datasets")
+}
+
+model DatasetItem {
+  id             String @id @default(uuid()) @db.Uuid
+  datasetId      String @map("dataset_id") @db.Uuid
+  contributionId String @map("contribution_id") @db.Uuid
+
+  dataset      Dataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  contribution Contribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+
+  @@index([datasetId])
+  @@index([contributionId])
+  @@map("dataset_items")
+}
+
+model DatasetExport {
+  id           String   @id @default(uuid()) @db.Uuid
+  datasetId    String   @map("dataset_id") @db.Uuid
+  exportFormat String   @map("export_format") @db.VarChar(20)
+  status       String   @db.VarChar(30)
+  itemCount    Int      @map("item_count")
+  manifest     Json     @db.Json
+  createdBy    String   @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  dataset Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([datasetId])
+  @@map("dataset_exports")
+}
+
+model Review {
+  id             String   @id @default(uuid()) @db.Uuid
+  contributionId String   @map("contribution_id") @db.Uuid
+  reviewerId     String   @map("reviewer_id") @db.Uuid
+  action         String   @db.VarChar(30)
+  notes          String?
+  qualityScore   Float?   @map("quality_score")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contribution Contribution @relation(fields: [contributionId], references: [id], onDelete: Cascade)
+  reviewer     User         @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([contributionId])
+  @@index([reviewerId])
+  @@index([action])
+  @@map("reviews")
+}
+
+model Wallet {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @unique @map("user_id") @db.Uuid
+  pendingCoins       Int      @map("pending_coins")
+  earnedCoins        Int      @map("earned_coins")
+  redeemedCoins      Int      @map("redeemed_coins")
+  expiredCoins       Int      @map("expired_coins")
+  totalLifetimeCoins Int      @map("total_lifetime_coins")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions CoinTransaction[]
+
+  @@map("wallets")
+}
+
+model CoinTransaction {
+  id              String   @id @default(uuid()) @db.Uuid
+  walletId        String   @map("wallet_id") @db.Uuid
+  contributionId  String?  @map("contribution_id") @db.Uuid
+  amount          Int
+  transactionType String   @map("transaction_type") @db.VarChar(30)
+  status          String   @db.VarChar(30)
+  reason          String   @db.VarChar(255)
+  approvedBy      String?  @map("approved_by") @db.Uuid
+  createdAt       DateTime @map("created_at") @db.Timestamptz(6)
+
+  wallet       Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  contribution Contribution? @relation(fields: [contributionId], references: [id], onDelete: SetNull)
+  approver     User?         @relation("TransactionApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@index([walletId])
+  @@index([contributionId])
+  @@map("coin_transactions")
+}

@@ -2,13 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  updateProfile,
-  type UserCredential,
-} from "firebase/auth";
+import { signInWithPopup } from "firebase/auth";
 
 import { API_URL } from "@/lib/api";
 import { firebaseAuth, googleProvider } from "@/lib/firebase";
@@ -27,18 +21,16 @@ export function AuthForm({ mode }: AuthFormProps) {
     setHydrated(true);
   }, []);
 
-  async function syncFirebaseUser(
-    credential: UserCredential,
-    fullName?: string,
-  ) {
-    const idToken = await credential.user.getIdToken();
-    const response = await fetch(`${API_URL}/auth/firebase`, {
+  async function authenticate(data: {
+    email: string;
+    password: string;
+    full_name?: string;
+  }) {
+    const endpoint = mode === "register" ? "/auth/register" : "/auth/login";
+    const response = await fetch(`${API_URL}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id_token: idToken,
-        full_name: fullName || credential.user.displayName || undefined,
-      }),
+      body: JSON.stringify(data),
     });
     const contentType = response.headers.get("content-type") ?? "";
     const result = contentType.includes("application/json")
@@ -57,6 +49,44 @@ export function AuthForm({ mode }: AuthFormProps) {
     router.push("/contribute");
   }
 
+  // Google users have no password in our database, so the Firebase ID token is
+  // exchanged for a normal API access token via /auth/firebase.
+  async function continueWithGoogle() {
+    if (!hydrated) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      const credential = await signInWithPopup(firebaseAuth(), googleProvider);
+      const idToken = await credential.user.getIdToken();
+      const response = await fetch(`${API_URL}/auth/firebase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_token: idToken,
+          full_name: credential.user.displayName || undefined,
+        }),
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+      const result = contentType.includes("application/json")
+        ? await response.json()
+        : null;
+
+      if (!response.ok) {
+        throw new Error(
+          typeof result?.detail === "string" ? result.detail : "Unable to continue",
+        );
+      }
+
+      localStorage.setItem("biidp_access_token", result.access_token);
+      router.push("/contribute");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to continue");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!hydrated) return;
@@ -70,35 +100,7 @@ export function AuthForm({ mode }: AuthFormProps) {
       mode === "register" ? String(form.get("full_name")).trim() : undefined;
 
     try {
-      const auth = firebaseAuth();
-      if (mode === "register") {
-        const credential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password,
-        );
-        if (fullName) {
-          await updateProfile(credential.user, { displayName: fullName });
-        }
-        await syncFirebaseUser(credential, fullName);
-      } else {
-        await syncFirebaseUser(
-          await signInWithEmailAndPassword(auth, email, password),
-        );
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to continue");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function continueWithGoogle() {
-    if (!hydrated) return;
-    setLoading(true);
-    setError("");
-    try {
-      await syncFirebaseUser(await signInWithPopup(firebaseAuth(), googleProvider));
+      await authenticate({ email, password, full_name: fullName });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to continue");
     } finally {
@@ -135,7 +137,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             name="password"
             type="password"
             required
-            minLength={6}
+            minLength={10}
             className="mt-2 w-full rounded-2xl border border-ink/15 bg-white/70 px-4 py-3 outline-none focus:border-reed"
           />
         </label>
@@ -147,13 +149,19 @@ export function AuthForm({ mode }: AuthFormProps) {
         >
           {!hydrated
             ? "Loading..."
-            : loading
+          : loading
               ? "Please wait..."
               : mode === "register"
                 ? "Create account"
                 : "Sign in"}
         </button>
       </form>
+
+      <div className="flex items-center gap-3 text-xs text-ink/45">
+        <span className="h-px flex-1 bg-ink/10" />
+        or
+        <span className="h-px flex-1 bg-ink/10" />
+      </div>
 
       <button
         type="button"

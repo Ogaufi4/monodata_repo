@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-14T03:06:11.987Z",
+  "generator": "indigenous-corpus-generator-v2",
+  "record_count": 27253,
+  "shard_size": 5000,
+  "max_repeats": 3,
+  "files": [
+    "english-prompts-00001.jsonl",
+    "english-prompts-00002.jsonl",
+    "english-prompts-00003.jsonl",
+    "english-prompts-00004.jsonl",
+    "english-prompts-00005.jsonl",
+    "english-prompts-00006.jsonl"
+  ],
+  "records_by_task_type": {
+    "translation_word": 401,
+    "pronunciation_word": 401,
+    "translation_phrase": 513,
+    "translation_sentence": 12267,
+    "pronunciation_sentence": 12267,
+    "conversation_seed": 1404
+  },
+  "records_by_domain": {
+    "daily_life": 4809,
+    "family": 3812,
+    "education": 2177,
+    "health": 1463,
+    "agriculture": 2153,
+    "law": 1908,
+    "government": 1575,
+    "commerce": 1842,
+    "transport": 1834,
+    "technology": 1961,
+    "environment": 1676,
+    "culture": 2043
+  },
+  "records_by_difficulty": {
+    "basic": 7157,
+    "advanced": 6408,
+    "intermediate": 13688
+  },
+  "note": "English source prompts only, deduplicated by dedupe_key. Target-language labels require human contributors and review."
+}

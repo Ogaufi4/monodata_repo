@@ -14,6 +14,10 @@ LOCAL_WEB_ORIGINS = [
 PRODUCTION_WEB_ORIGINS = [
     "https://contribute.diteme.com",
     "https://monodata-repo-next-577l131qh-ogauras-projects.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 
 app = FastAPI(

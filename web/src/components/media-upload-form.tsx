@@ -3,9 +3,16 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { API_URL, type Language } from "@/lib/api";
-
-type Category = { id: string; name: string };
+import { type Language } from "@/lib/api";
+import {
+  apiPost,
+  authToken,
+  DOMAIN_CATEGORY,
+  fieldClass,
+  loadList,
+  STANDARD_CONSENT,
+  type Category,
+} from "@/lib/guided";
 
 type MediaUploadFormProps = {
   heading: string;
@@ -15,6 +22,18 @@ type MediaUploadFormProps = {
   enableRecording?: boolean;
   capture?: "user" | "environment";
 };
+
+// Category name -> corpus domain, so the contributor picks a topic and the
+// domain is filled in for them.
+const CATEGORY_DOMAIN: Record<string, string> = Object.fromEntries(
+  Object.entries(DOMAIN_CATEGORY).map(([domain, category]) => [category, domain]),
+);
+
+/** "IMG_2024 photo.jpeg" -> "IMG 2024 photo" */
+function titleFromFile(name: string): string {
+  const base = name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+  return (base || "Untitled").slice(0, 200);
+}
 
 export function MediaUploadForm({
   heading,
@@ -26,8 +45,9 @@ export function MediaUploadForm({
 }: MediaUploadFormProps) {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [language, setLanguage] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [notice, setNotice] = useState<{ text: string; isError: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [recording, setRecording] = useState(false);
@@ -37,15 +57,12 @@ export function MediaUploadForm({
   const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${API_URL}/languages`).then((response) => response.json()),
-      fetch(`${API_URL}/categories`).then((response) => response.json()),
-    ])
+    Promise.all([loadList<Language>("/languages"), loadList<Category>("/categories")])
       .then(([languageData, categoryData]) => {
         setLanguages(languageData);
         setCategories(categoryData);
       })
-      .catch(() => setError("Could not load contribution metadata."));
+      .catch(() => setNotice({ text: "Could not load the language list.", isError: true }));
   }, []);
 
   useEffect(() => {
@@ -62,26 +79,19 @@ export function MediaUploadForm({
   }
 
   async function startRecording() {
-    setError("");
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setError("This browser does not support audio recording.");
+      setNotice({ text: "This browser cannot record audio.", isError: true });
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const preferredTypes = [
+      const mimeType = [
         "audio/webm;codecs=opus",
         "audio/webm",
         "audio/ogg;codecs=opus",
         "audio/mp4",
-      ];
-      const mimeType = preferredTypes.find((type) =>
-        MediaRecorder.isTypeSupported(type),
-      );
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined,
-      );
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunksRef.current.push(event.data);
@@ -89,9 +99,10 @@ export function MediaUploadForm({
       recorder.onstop = () => {
         const type = recorder.mimeType.split(";")[0] || "audio/webm";
         const extension = type === "audio/mp4" ? "m4a" : type.split("/")[1] || "webm";
-        const blob = new Blob(chunksRef.current, { type });
         chooseFile(
-          new File([blob], `recording-${Date.now()}.${extension}`, { type }),
+          new File([new Blob(chunksRef.current, { type })], `recording-${Date.now()}.${extension}`, {
+            type,
+          }),
         );
         stream.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -102,70 +113,48 @@ export function MediaUploadForm({
       recorder.start(250);
       setRecording(true);
     } catch {
-      setError("Microphone access was denied or is unavailable.");
+      setNotice({ text: "Microphone access was denied.", isError: true });
     }
   }
 
   function stopRecording() {
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-    }
-  }
-
-  async function apiRequest(path: string, token: string, body: object) {
-    const response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(
-        typeof result.detail === "string"
-          ? result.detail
-          : result.detail?.message || "Request failed",
-      );
-    }
-    return result;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    const formFile = form.get("file");
-    const file =
-      selectedFile ||
-      (formFile instanceof File && formFile.size ? formFile : null);
-    const token = localStorage.getItem("biidp_access_token");
+    const token = authToken();
     if (!token) {
-      setError("Sign in before uploading a contribution.");
+      setNotice({ text: `Sign in before sharing ${mediaLabel.toLowerCase()}.`, isError: true });
       return;
     }
-    if (!file || !file.size) {
-      setError(`Choose a ${mediaLabel.toLowerCase()} file.`);
+    const file = selectedFile;
+    if (!file?.size) {
+      setNotice({ text: `Choose a ${mediaLabel.toLowerCase()} file.`, isError: true });
       return;
     }
 
     setLoading(true);
-    setError("");
-    setMessage("");
+    setNotice(null);
     try {
-      const draft = await apiRequest("/contributions", token, {
+      const category = categories.find((item) => item.id === categoryId);
+      const languageName = languages.find((item) => item.id === language)?.name ?? "the language";
+      if (!category) throw new Error("Choose a topic.");
+
+      // Derived from the file and the chosen topic — nothing to invent.
+      const draft = await apiPost("/contributions", token, {
         contribution_type: contributionType,
-        title: String(form.get("title")),
-        description: String(form.get("description")),
-        language_id: String(form.get("language_id")),
-        category_id: String(form.get("category_id")),
-        domain: String(form.get("domain")),
+        title: titleFromFile(file.name),
+        description: `${mediaLabel} contribution in ${languageName} about ${category.name.toLowerCase()}.`,
+        language_id: language,
+        category_id: category.id,
+        domain: CATEGORY_DOMAIN[category.name] ?? "daily_life",
         tags: [],
         source: "Contributor upload",
-        license_type: String(form.get("license_type")),
+        license_type: "CC BY 4.0",
       });
-      const signed = await apiRequest("/uploads/signed-url", token, {
+
+      const signed = await apiPost("/uploads/signed-url", token, {
         contribution_id: draft.id,
         filename: file.name,
         content_type: file.type,
@@ -177,69 +166,62 @@ export function MediaUploadForm({
         body: file,
       });
       if (!upload.ok) {
-        throw new Error(`Object storage rejected the upload (${upload.status}).`);
+        throw new Error(`Storage rejected the upload (${upload.status}).`);
       }
-      await apiRequest("/uploads/confirm", token, {
-        upload_token: signed.upload_token,
-      });
-      await apiRequest(`/contributions/${draft.id}/consent`, token, {
-        consent_version: "1.0",
-        use_for_ai_training: form.get("use_for_ai_training") === "on",
-        use_for_research: form.get("use_for_research") === "on",
-        use_for_commercial: form.get("use_for_commercial") === "on",
-        allow_open_release: form.get("allow_open_release") === "on",
-        allow_attribution: form.get("allow_attribution") === "on",
-      });
-      await apiRequest(`/contributions/${draft.id}/submit`, token, {});
-      formElement.reset();
+      await apiPost("/uploads/confirm", token, { upload_token: signed.upload_token });
+      await apiPost(`/contributions/${draft.id}/consent`, token, STANDARD_CONSENT);
+      await apiPost(`/contributions/${draft.id}/submit`, token);
+
       chooseFile(null);
-      setMessage(`${mediaLabel} submitted for review. Thank you.`);
+      setNotice({ text: `${mediaLabel} submitted for review. Thank you.`, isError: false });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Upload failed");
+      setNotice({
+        text: caught instanceof Error ? caught.message : "Upload failed",
+        isError: true,
+      });
     } finally {
       setLoading(false);
     }
   }
 
-  const fieldClass =
-    "mt-2 w-full rounded-2xl border border-ink/15 bg-white/70 px-4 py-3 outline-none focus:border-reed";
-
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
+    <main className="mx-auto max-w-2xl px-6 py-10">
       <Link href="/contribute" className="text-sm font-medium text-reed">
         ← Contribution types
       </Link>
       <h1 className="mt-12 text-5xl font-semibold tracking-[-0.04em]">{heading}</h1>
       <p className="mt-4 text-ink/60">
-        Files upload directly to private object storage. The platform records
-        metadata only after verifying the stored object.
+        Choose your language and the topic, then add the file. The title and description are
+        filled in for you.
       </p>
 
       <form onSubmit={submit} className="mt-10 space-y-6">
-        <label className="block">
-          <span className="text-sm font-medium">Title</span>
-          <input name="title" required className={fieldClass} />
-        </label>
-        <label className="block">
-          <span className="text-sm font-medium">Description</span>
-          <textarea name="description" required className={fieldClass} />
-        </label>
-        <div className="grid gap-5 md:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-2">
           <label>
             <span className="text-sm font-medium">Language</span>
-            <select name="language_id" required className={fieldClass}>
-              <option value="">Select language</option>
-              {languages.map((language) => (
-                <option key={language.id} value={language.id}>
-                  {language.local_name || language.name}
+            <select
+              required
+              className={fieldClass}
+              value={language}
+              onChange={(event) => setLanguage(event.target.value)}
+            >
+              <option value="">Select your language</option>
+              {languages.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.local_name || item.name}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            <span className="text-sm font-medium">Category</span>
-            <select name="category_id" required className={fieldClass}>
-              <option value="">Select category</option>
+            <span className="text-sm font-medium">Topic</span>
+            <select
+              required
+              className={fieldClass}
+              value={categoryId}
+              onChange={(event) => setCategoryId(event.target.value)}
+            >
+              <option value="">Select a topic</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
@@ -247,15 +229,11 @@ export function MediaUploadForm({
               ))}
             </select>
           </label>
-          <label>
-            <span className="text-sm font-medium">Domain</span>
-            <input name="domain" required className={fieldClass} />
-          </label>
         </div>
+
         <label className="block">
           <span className="text-sm font-medium">{mediaLabel} file</span>
           <input
-            name="file"
             type="file"
             accept={accept}
             capture={capture}
@@ -264,28 +242,26 @@ export function MediaUploadForm({
             className={fieldClass}
           />
         </label>
+
         {enableRecording && (
-          <section className="rounded-3xl bg-ink p-6 text-sand">
-            <p className="font-semibold">Record speech in your browser</p>
-            <p className="mt-2 text-sm text-white/60">
-              Record, preview, and re-record before submitting.
-            </p>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
+          <section className="rounded-3xl border border-ink/10 bg-white/50 p-5">
+            <p className="text-sm font-medium">Or record in your browser</p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               {!recording ? (
                 <button
                   type="button"
                   onClick={startRecording}
-                  className="rounded-full bg-sun px-5 py-2.5 font-medium text-ink"
+                  className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white"
                 >
-                  {selectedFile ? "Record again" : "Start recording"}
+                  {selectedFile ? "Record again" : "Record"}
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={stopRecording}
-                  className="rounded-full bg-red-600 px-5 py-2.5 font-medium text-white"
+                  className="rounded-full bg-red-600 px-5 py-2 text-sm font-medium text-white"
                 >
-                  Stop recording
+                  Stop
                 </button>
               )}
               {recording && (
@@ -297,10 +273,9 @@ export function MediaUploadForm({
             </div>
           </section>
         )}
+
         {previewUrl && contributionType === "audio_recording" && (
-          <audio controls src={previewUrl} className="w-full">
-            Your browser does not support audio playback.
-          </audio>
+          <audio controls src={previewUrl} className="w-full" />
         )}
         {previewUrl && contributionType === "image" && (
           // The source is a local object URL chosen by the contributor.
@@ -311,39 +286,24 @@ export function MediaUploadForm({
             className="max-h-96 w-full rounded-3xl bg-white object-contain"
           />
         )}
-        <label className="block">
-          <span className="text-sm font-medium">License</span>
-          <select name="license_type" required className={fieldClass}>
-            <option value="CC BY 4.0">CC BY 4.0</option>
-            <option value="CC BY-NC 4.0">CC BY-NC 4.0</option>
-          </select>
+
+        <label className="flex gap-3 text-sm">
+          <input type="checkbox" required className="mt-0.5" />
+          <span>
+            I agree this may be stored, reviewed, and used for research and responsible AI
+            training, with attribution and open release. Commercial use is not granted.
+          </span>
         </label>
-        <fieldset className="rounded-3xl border border-ink/10 bg-white/50 p-6">
-          <legend className="px-2 font-semibold">Consent</legend>
-          <div className="space-y-3 text-sm">
-            <label className="flex gap-3 font-medium">
-              <input type="checkbox" required />
-              <span>I consent to storage and review of this contribution</span>
-            </label>
-            {[
-              ["use_for_ai_training", "Use for responsible AI training"],
-              ["use_for_research", "Use for research"],
-              ["use_for_commercial", "Allow commercial use"],
-              ["allow_open_release", "Allow inclusion in open datasets"],
-              ["allow_attribution", "Allow contributor attribution"],
-            ].map(([name, label]) => (
-              <label key={name} className="flex gap-3">
-                <input name={name} type="checkbox" />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        {error && <p className="text-sm text-red-700">{error}</p>}
-        {message && <p className="text-sm font-medium text-reed">{message}</p>}
+
+        {notice && (
+          <p className={`text-sm ${notice.isError ? "text-red-700" : "text-reed"}`}>
+            {notice.text}
+          </p>
+        )}
+
         <button
           disabled={loading || !languages.length || !categories.length}
-          className="rounded-full bg-reed px-7 py-3 font-medium text-white disabled:opacity-50"
+          className="w-full rounded-full bg-reed px-7 py-3 font-medium text-white disabled:opacity-50"
         >
           {loading ? "Uploading…" : `Submit ${mediaLabel.toLowerCase()}`}
         </button>
