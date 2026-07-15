@@ -9,7 +9,10 @@ export const env = {
   environment: process.env.ENVIRONMENT ?? "development",
   jwtSecret: process.env.JWT_SECRET ?? "development-only-change-me-at-least-32-bytes",
   accessTokenMinutes: intFromEnv("ACCESS_TOKEN_MINUTES", 60),
-  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || null,
+  firebaseProjectId:
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
+    null,
   storageBackend: process.env.STORAGE_BACKEND ?? "r2",
   localStoragePath: process.env.LOCAL_STORAGE_PATH ?? "./local-storage",
   localStorageBaseUrl: process.env.LOCAL_STORAGE_BASE_URL ?? "http://localhost:3000",
