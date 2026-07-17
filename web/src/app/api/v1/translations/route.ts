@@ -5,6 +5,16 @@ import { ApiError, handle, json, parseBody } from "@/lib/server/http";
 import { translationCreate } from "@/lib/server/schemas";
 import { translationRead } from "@/lib/server/serializers";
 
+const TEXT_CONTENT_TYPES = [
+  "translation",
+  "word",
+  "sentence",
+  "story",
+  "proverb",
+  "dictionary_entry",
+  "cultural_knowledge",
+];
+
 export const POST = handle(async (request) => {
   const user = await getCurrentUser(request);
   const payload = await parseBody(request, translationCreate);
@@ -13,8 +23,8 @@ export const POST = handle(async (request) => {
     translation: true,
   });
   assertAuthor(contribution, user, "Only the author can edit");
-  if (contribution.contributionType !== "translation") {
-    throw new ApiError(422, "Contribution type must be translation");
+  if (!TEXT_CONTENT_TYPES.includes(contribution.contributionType)) {
+    throw new ApiError(422, "Contribution type must support text content");
   }
   if (contribution.status !== "draft") {
     throw new ApiError(409, "Contribution is no longer editable");

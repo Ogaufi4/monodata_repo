@@ -18,6 +18,7 @@ export type ObjectMetadata = { contentLength: number; contentType: string };
 export interface ObjectStorage {
   readonly kind: "local" | "r2";
   createUploadUrl(storageKey: string, contentType: string, expiresIn: number): Promise<string>;
+  putObject(storageKey: string, contentType: string, content: Buffer): Promise<void>;
   objectMetadata(storageKey: string): Promise<ObjectMetadata>;
   createDownloadUrl(storageKey: string, expiresIn: number): Promise<string>;
 }
@@ -126,6 +127,18 @@ export class R2Storage implements ObjectStorage {
       contentLength: head.ContentLength ?? -1,
       contentType: head.ContentType ?? "",
     };
+  }
+
+  async putObject(storageKey: string, contentType: string, content: Buffer): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: storageKey,
+        Body: content,
+        ContentLength: content.length,
+        ContentType: contentType,
+      }),
+    );
   }
 
   async createDownloadUrl(storageKey: string, expiresIn: number): Promise<string> {

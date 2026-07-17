@@ -2,7 +2,15 @@ import { getCurrentUser } from "@/lib/server/auth";
 import { assertAuthor, ownedContribution } from "@/lib/server/contributions";
 import { prisma } from "@/lib/server/db";
 import { ApiError, handle, json, uuidParam } from "@/lib/server/http";
-import { contributionRead } from "@/lib/server/serializers";
+import {
+  annotationRead,
+  assetRead,
+  consentRead,
+  contributionRead,
+  conversationDetail,
+  translationRead,
+} from "@/lib/server/serializers";
+import { storageOr503 } from "@/lib/server/storage";
 
 // Which prompt pool a contribution draws from, so completions are counted
 // against the right task when the cap is enforced.
@@ -23,8 +31,15 @@ const ASSET_REQUIRED_TYPES = [
   "document",
 ];
 
+const ARTIFACT_CONTENT_TYPE = "application/json";
+
+function artifactKey(contributionId: string) {
+  return `contributions/${contributionId}/artifact/submission.json`;
+}
+
 export const POST = handle(async (request, context) => {
   const user = await getCurrentUser(request);
+  const storage = storageOr503();
   const { contributionId } = await context.params;
   const contribution = await ownedContribution(
     uuidParam(contributionId, "contribution_id"),
@@ -33,7 +48,7 @@ export const POST = handle(async (request, context) => {
       consent: true,
       translation: true,
       conversation: { include: { turns: true } },
-      assets: true,
+      assets: { include: { annotations: true } },
     },
   );
   assertAuthor(contribution, user, "Only the author can submit");
@@ -73,10 +88,52 @@ export const POST = handle(async (request, context) => {
     throw new ApiError(422, { message: "Contribution is incomplete", missing });
   }
 
+  const submittedAt = new Date();
+  const key = artifactKey(contribution.id);
+  const artifact = {
+    schema_version: "1.0",
+    exported_at: submittedAt.toISOString(),
+    contribution: contributionRead({
+      ...contribution,
+      status: "submitted",
+      submittedAt,
+    }),
+    consent: contribution.consent ? consentRead(contribution.consent) : null,
+    translation: contribution.translation ? translationRead(contribution.translation) : null,
+    conversation: contribution.conversation ? conversationDetail(contribution.conversation) : null,
+    assets: contribution.assets.map((asset) => ({
+      ...assetRead(asset),
+      annotations: asset.annotations.map(annotationRead),
+    })),
+  };
+  const content = Buffer.from(JSON.stringify(artifact, null, 2), "utf8");
+  await storage.putObject(key, ARTIFACT_CONTENT_TYPE, content);
+
   const updated = await prisma.$transaction(async (tx) => {
     const submitted = await tx.contribution.update({
       where: { id: contribution.id },
-      data: { status: "submitted", submittedAt: new Date() },
+      data: { status: "submitted", submittedAt },
+    });
+
+    await tx.contributionAsset.upsert({
+      where: { storageKey: key },
+      create: {
+        contributionId: contribution.id,
+        uploadedBy: user.id,
+        storageKey: key,
+        originalFilename: "submission.json",
+        mediaType: "artifact",
+        contentType: ARTIFACT_CONTENT_TYPE,
+        fileSize: content.length,
+        fileFormat: "json",
+        status: "confirmed",
+      },
+      update: {
+        contentType: ARTIFACT_CONTENT_TYPE,
+        fileSize: content.length,
+        fileFormat: "json",
+        status: "confirmed",
+      },
     });
 
     if (contribution.promptItemId) {
